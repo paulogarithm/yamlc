@@ -2,13 +2,13 @@ LIB = yamlc
 AR = ar rc
 BLIB = lib$(LIB).a
 
-CFLAGS = -Wall -Wextra -Wpedantic -I.
+CFLAGS = -Wall -Wextra -Wpedantic -I. -g3
 LDFLAGS = -L. -l$(LIB)
 
 SRC = \
-    yaml.c
+    yamlc.c
 
-HEADER = yaml.h
+HEADER = yamlc.h
 
 OBJS = $(SRC:.c=.o)
 
