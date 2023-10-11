@@ -16,10 +16,10 @@ LIBPATH = /usr/local/lib/$(BLIB)
 HEADERPATH = /usr/local/include/yaml.h
 
 E = $(shell which echo)
-INFO = $(E) -e [\\x1b\\x5b34mInfo\\x1b\\x5bm]
-ERROR = $(E) -e [\\x1b\\x5b31mError\\x1b\\x5bm]
+INFO = $(E) -e [\\x1b\\x5b34;1mInfo\\x1b\\x5bm]
+ERROR = $(E) -e [\\x1b\\x5b31;1mError\\x1b\\x5bm]
 HINT = $(E) -e \\nHint:
-SUCCESS = $(E) -e [\\x1b\\x5b32mDone\\x1b\\x5bm]
+SUCCESS = $(E) -e [\\x1b\\x5b32;1mDone\\x1b\\x5bm]
 
 # Rules
 
