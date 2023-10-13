@@ -1,12 +1,10 @@
 #include <iso646.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <malloc.h>
 #include <unistd.h>
-#include <errno.h>
 
 #include "yamlc.h"
 
@@ -14,13 +12,21 @@
 #define false (_Bool)0
 #define null NULL
 
-#define IS_SPACE(c) ((c == 32 or (c >= 9 and c <= 10)))
+#define IS_SPACE(c) ((c == ' ' or (c >= 9 and c <= 10)))
 #define IS_DIGIT(c) (c >= '0' and c <= '9')
 
-#define RETFREE(str, v) do { free(str); return v; } while (0)
+#define RETFREE(str, v) \
+    do                  \
+    {                   \
+        free(str);      \
+        return v;       \
+    } while (0)
+
+#define RECURSIVE_PARENT(obj, name, n) \
+    for (size_t i = 0; i <= n; ++i)    \
+    obj = obj->name
 
 void yaml_close(yaml_t *yaml);
-
 
 // BASIC FUNCTIONS
 
@@ -63,6 +69,38 @@ static char *strcleanedge(char *str)
     return str;
 }
 
+static char *strcleanedgedup(const char *str)
+{
+    char *res = null;
+    char *end = null;
+
+    if (str == null)
+        return null;
+    res = strdup(str);
+    if (res == null)
+        return null;
+    while (IS_SPACE(*res))
+        ++res;
+    if (*res == '\0')
+        return res;
+    end = res + strlen(res) - 1;
+    while (end > res and IS_SPACE(*end))
+        --end;
+    *(end + 1) = '\0';
+    return res;
+}
+
+static char *strrep(char c, size_t rep)
+{
+    char *str = (char *)malloc(sizeof(char) * (rep + 1));
+
+    if (str == null)
+        return null;
+    for (size_t n = 0; n < rep; str[n++] = c)
+        ;
+    str[rep] = '\0';
+    return str;
+}
 
 // ARRAY FUNCTIONS
 
@@ -107,6 +145,43 @@ static void __Array_close(arr_t arr)
     free(arr);
 }
 
+static _Bool __Array_pop(arr_t *arr, size_t pop)
+{
+    size_t size = __Array_len(*arr);
+    arr_t new_arr = null;
+    size_t new_index = 0;
+
+    if (*arr == null or pop >= size)
+        return false;
+    new_arr = (arr_t)malloc(sizeof(void *) * (size));
+    if (new_arr == null)
+        return false;
+    for (size_t index = 0; index < size; ++index)
+    {
+        if (index == pop)
+            continue;
+        new_arr[new_index] = (*arr)[index];
+        ++new_index;
+    }
+    new_arr[size - 1] = null;
+    free((*arr)[pop]);
+    free(*arr);
+    *arr = new_arr;
+    return true;
+}
+
+static ssize_t __Array_index(arr_t array, void *ptr)
+{
+    size_t res = 0;
+
+    if (ptr == null)
+        return -1;
+    for (; array[res] != null; ++res)
+        if (array[res] == ptr)
+            return res;
+    return -1;
+}
+
 static arr_t __Array_parser(const char *filename)
 {
     char *str = file_str(filename);
@@ -149,7 +224,6 @@ static arr_t __Array_str_split(char *str, const char *sep)
     return array;
 }
 
-
 // YAML FUNCTIONS
 
 static yaml_t *__Yaml_init(const char *filename)
@@ -163,10 +237,10 @@ static yaml_t *__Yaml_init(const char *filename)
     Y->nodes = (node_t *)malloc(sizeof(node_t));
     if (Y->lines == null or Y->nodes == null)
         return null;
-    memcpy(Y->nodes, &(node_t){null}, sizeof(node_t));
+    memcpy(Y->nodes, &(node_t){0}, sizeof(node_t));
     Y->nodes->val = YAMLVAL_YAML;
-    Y->nodes->value = __Array_init();
-    if (Y->nodes->value == null)
+    Y->nodes->data = __Array_init();
+    if (Y->nodes->data == null)
         return null;
     return Y;
 }
@@ -196,91 +270,174 @@ static enum yamlval __Yaml_get_type(const char *str)
     RETFREE(dstr, YAMLVAL_NUM);
 }
 
-static unsigned long int __Yaml_layer(const char *str)
+static size_t __Yaml_layer(const char *str)
 {
-    unsigned long n = 0;
+    size_t n = 0;
     while (IS_SPACE(str[n]))
         ++n;
-    return (unsigned long int)(n / 2);
+    return (size_t)(n / 2);
 }
 
-static node_t *__Yaml_subtreat(node_t *parent, enum yamlval val, char *line)
+static node_t *__Yaml_newnode(node_t *parent, enum yamlval val, char *line)
 {
-    node_t *self = null;
+    node_t *self = (node_t *)malloc(sizeof(node_t));
+    char *dup = strdup(line);
+    arr_t a = __Array_str_split(dup, ":");
 
-    if (parent->val != YAMLVAL_YAML)
-        return parent;
-    self = (node_t *)malloc(sizeof(node_t));
-    if (self == null)
+    free(dup);
+    if (self == null or a == null or a[0] == null or
+        not __Array_push((arr_t *)&parent->data, self))
         return null;
-    self->key = line;
-    self->val = val;
     self->parent = parent;
-    self->value = ((val == YAMLVAL_YAML) ? __Array_init() : null);
-    if (val == YAMLVAL_YAML and self->value == null)
-        return null;
-    if (not __Array_push((arr_t *)(&(parent->value)), self))
-        return null;
+    self->val = val;
+    self->data = null;
+    self->name = strdup(strcleanedge(a[0]));
+    if (val == YAMLVAL_YAML)
+    {
+        self->data = __Array_init();
+        if (self->data == null)
+            return null;
+    }
+    else
+        self->data = strdup(a[1]);
+    __Array_close(a);
     return self;
 }
-
-#define RECURSIVE_PARENT(obj, name, n) \
-    for (size_t i = 0; i < n; ++i) \
-    obj = obj->name
 
 static _Bool __Yaml_treat(yaml_t *y)
 {
     enum yamlval val = 0;
-    unsigned long int lay = 0;
-    unsigned long int oldlay = 0;
-    node_t *parent = y->nodes;
-    node_t *obj = null;
+    node_t *parent = y->nodes, *node = null;
+    size_t parent_lay = 0, node_lay = 0;
 
     for (size_t n = 0; y->lines[n] != null; ++n)
     {
         val = __Yaml_get_type(y->lines[n]);
         if (val == YAMLVAL_ERR)
             return false;
-        lay = __Yaml_layer(y->lines[n]);
-        obj = __Yaml_subtreat(parent, lay, y->lines[n]);
-        // printf("%ld %d %p\n", lay, val, (void *)parent);
-        if (lay > oldlay or n == 0)
-            parent = obj;
-        else if (lay < oldlay)
-            parent = obj->parent;
-        oldlay = lay;
+        node_lay = __Yaml_layer(y->lines[n]);
+        if (node_lay < parent_lay)
+        {
+            RECURSIVE_PARENT(parent, parent, parent_lay - node_lay);
+            parent_lay = node_lay;
+        }
+        node = __Yaml_newnode(parent, val, y->lines[n]);
+        if (node == null)
+            return false;
+        if (val == YAMLVAL_YAML and (node_lay > parent_lay or n == 0))
+        {
+            parent = node;
+            parent_lay = node_lay;
+        }
     }
     return true;
 }
 
-void __Yaml_disp(node_t *node)
+static void __Yaml_closenode(node_t *node)
 {
-    printf("%s\n", node->key == null ? "null" : node->key);
+    free(node->name);
     if (node->val != YAMLVAL_YAML)
+    {
+        free(node->data);
         return;
-    for (size_t n = 0; ((arr_t)node->value)[n] != null; ++n)
-        __Yaml_disp(((arr_t)node->value)[n]);
+    }
+    for (size_t n = 0; ((node_t **)node->data)[n] != null; ++n)
+        __Yaml_closenode(((node_t **)node->data)[n]);
+    __Array_close((arr_t)node->data);
+}
+
+static void __Yaml_disp(node_t *node, unsigned lay)
+{
+    char *str = strrep('-', lay);
+
+    printf("%s%s", str, node->name);
+    free(str);
+    if (node->data == null)
+        return;
+    if (node->val != YAMLVAL_YAML)
+    {
+        printf("%s\n", (char *)node->data);
+        return;
+    }
+    if (write(1, "\n", 1) == -1)
+        return;
+    for (size_t n = 0; ((arr_t)node->data)[n] != null; ++n)
+        __Yaml_disp(((node_t **)node->data)[n], lay + 1);
+}
+
+static void __Yaml_linecleaner(yaml_t *y)
+{
+    char *str = null;
+    const char *cleaned = null;
+
+    for (size_t n = 0; y->lines[n] != null; ++n)
+    {
+        str = strdup(y->lines[n]);
+        cleaned = strcleanedge(str);
+        if (strlen(cleaned) == 0 or cleaned[0] == '#')
+            __Array_pop(&y->lines, n--);
+        free(str);
+    }
+}
+
+static node_t *__Yaml_getnodebyname(node_t **array, const char *name)
+{
+    char *dup = strcleanedgedup(name);
+
+    if (dup == null)
+        return null;
+    for (size_t n = 0; array[n] != null; ++n)
+        if (strcmp(name, array[n]->name) == 0)
+        {
+            free(dup);
+            return array[n];
+        }
+    free(dup);
+    return null;
 }
 
 // PUBLIC FUNCTIONS
 
-/**
- * Close a yaml object.
- * 
- * @public
-*/
 void yaml_close(yaml_t *yaml)
 {
     __Array_close(yaml->lines);
+    __Yaml_closenode(yaml->nodes);
+    free(yaml->nodes);
     free(yaml);
 }
 
-/**
- * Generates a yaml object by filename.
- * @returns A yaml object, null if it failed.
- * 
- * @public
-*/
+void *yaml_access(yaml_t *y, const char *__path)
+{
+    return null;
+}
+
+enum yamlval yaml_accesstype(yaml_t *y, const char *__path)
+{
+    char *str = strdup(__path);
+    arr_t a = __Array_str_split(str, ".");;
+    node_t *current = y->nodes;
+
+    free(str);
+    if (a == null)
+        return YAMLVAL_ERR;
+    for (size_t n = 0; a[n] != null; ++n)
+    {
+        if (current->val != YAMLVAL_YAML)
+        {
+            __Array_close(a);
+            return YAMLVAL_ERR;
+        }
+        current = __Yaml_getnodebyname((node_t **)current->data, a[n]);
+        if (current == null)
+        {
+            __Array_close(a);
+            return YAMLVAL_ERR;
+        }
+    }
+    __Array_close(a);
+    return current->val;
+}
+
 yaml_t *yaml_parse(const char *filename)
 {
     yaml_t *y = null;
@@ -288,10 +445,11 @@ yaml_t *yaml_parse(const char *filename)
     y = __Yaml_init(filename);
     if (y == null)
         return null;
-    if (__Yaml_treat(y) == false) {
+    __Yaml_linecleaner(y);
+    if (__Yaml_treat(y) == false)
+    {
         yaml_close(y);
         return null;
     }
-    // __Yaml_disp(y->nodes);
     return y;
 }

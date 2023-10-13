@@ -2,6 +2,8 @@
     YAMLC
 </h1>
 
+Yamlc is a C/C++ parser 
+
 ## Installation
 
 ### `Step 1`
@@ -41,11 +43,15 @@ $ sudo make uninstall
 
 To include the yamlc lib, you can simply do :
 ```
-$ gcc <files> -lyamlc
+$ (compiler) (file.s) -lyamlc
+```
+For example
+```
+$ gcc examples/mainc.c -lyamlc
 ```
 
 <br>
 
 ## How does it work
 
-After since im lazy
+After, since im lazy

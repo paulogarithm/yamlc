@@ -13,7 +13,7 @@ HEADER = yamlc.h
 OBJS = $(SRC:.c=.o)
 
 LIBPATH = /usr/local/lib/$(BLIB)
-HEADERPATH = /usr/local/include/yaml.h
+HEADERPATH = /usr/local/include/$(HEADER)
 
 E = $(shell which echo)
 INFO = $(E) -e [\\x1b\\x5b34\;1mInfo\\x1b\\x5bm]
