@@ -13,7 +13,7 @@ int main(int ac, char *av[])
     if (yaml == null)
         return 1;
     for (size_t n = 0; yaml->lines[n] != null; ++n)
-        printf("% 4ld| %s\n", n, yaml->lines[n]);
+        printf("% 4ld| %s\n", n, (char *)yaml->lines[n]);
     yaml_close(yaml);
     return 0;
 }

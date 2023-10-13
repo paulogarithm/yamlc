@@ -2,4 +2,4 @@ bar:
   toto:
     a: 3
     b: 4
-  test: Hello world
+test: Hello world
