@@ -12,21 +12,34 @@
 #define false (_Bool)0
 #define null NULL
 
+#define unused __attribute__((unused))
+
 #define IS_SPACE(c) ((c == ' ' or (c >= 9 and c <= 10)))
 #define IS_DIGIT(c) (c >= '0' and c <= '9')
 
-#define RETFREE(str, v) \
+#define MAX(a, b) ((a >= b) ? a : b)
+
+#define CLOSE(ptr)   \
+    if (ptr != null) \
+    free(ptr)
+
+#define RETFREE(ptr, v) \
     do                  \
     {                   \
-        free(str);      \
+        CLOSE(ptr);     \
         return v;       \
     } while (0)
 
-#define RECURSIVE_PARENT(obj, name, n) \
-    for (size_t i = 0; i <= n; ++i)    \
-    obj = obj->name
+#define RETCLOSEARR(arr, v) \
+    do                      \
+    {                       \
+        __Array_close(arr); \
+        return v;           \
+    } while (0)
 
-void yaml_close(yaml_t *yaml);
+#define RECURSIVE_PARENT(obj, name, n)                        \
+    for (size_t i = 0; (i <= n) and (obj->name != null); ++i) \
+        obj = obj->name;
 
 // BASIC FUNCTIONS
 
@@ -45,7 +58,7 @@ static char *file_str(const char *filename)
         return null;
     if (read(fd, buf, st.st_size) < 0)
     {
-        free(buf);
+        CLOSE(buf);
         return null;
     }
     buf[st.st_size] = '\0';
@@ -141,8 +154,8 @@ static void __Array_close(arr_t arr)
     if (arr == null)
         return;
     for (size_t n = 0; arr[n] != null; ++n)
-        free(arr[n]);
-    free(arr);
+        CLOSE(arr[n]);
+    CLOSE(arr);
 }
 
 static _Bool __Array_pop(arr_t *arr, size_t pop)
@@ -164,13 +177,13 @@ static _Bool __Array_pop(arr_t *arr, size_t pop)
         ++new_index;
     }
     new_arr[size - 1] = null;
-    free((*arr)[pop]);
-    free(*arr);
+    CLOSE((*arr)[pop]);
+    CLOSE(*arr);
     *arr = new_arr;
     return true;
 }
 
-static ssize_t __Array_index(arr_t array, void *ptr)
+static ssize_t unused __Array_index(arr_t array, void *ptr)
 {
     size_t res = 0;
 
@@ -201,7 +214,7 @@ static arr_t __Array_parser(const char *filename)
             return null;
         token = strtok(null, sep);
     }
-    free(str);
+    CLOSE(str);
     return array;
 }
 
@@ -226,34 +239,60 @@ static arr_t __Array_str_split(char *str, const char *sep)
 
 // YAML FUNCTIONS
 
-static yaml_t *__Yaml_init(const char *filename)
+static yaml_t *__Yaml_getbyname(yaml_t **array, const char *name)
 {
-    yaml_t *Y = (yaml_t *)malloc(sizeof(yaml_t));
+    char *dup = strcleanedgedup(name);
 
-    if (Y == null)
+    if (dup == null)
         return null;
-    memcpy(Y, &(yaml_t){null}, sizeof(yaml_t));
-    Y->lines = __Array_parser(filename);
-    Y->nodes = (node_t *)malloc(sizeof(node_t));
-    if (Y->lines == null or Y->nodes == null)
-        return null;
-    memcpy(Y->nodes, &(node_t){0}, sizeof(node_t));
-    Y->nodes->val = YAMLVAL_YAML;
-    Y->nodes->data = __Array_init();
-    if (Y->nodes->data == null)
-        return null;
-    return Y;
+    for (size_t n = 0; array[n] != null; ++n)
+        if (strcmp(name, array[n]->name) == 0)
+        {
+            CLOSE(dup);
+            return array[n];
+        }
+    CLOSE(dup);
+    return null;
 }
 
-static enum yamlval __Yaml_get_type(const char *str)
+static yaml_t *__Yaml_init(yaml_t *parent, yamlval_t val, char *line)
+{
+    yaml_t *self = (yaml_t *)malloc(sizeof(yaml_t));
+    char *dup = strdup(line);
+    arr_t a = __Array_str_split(dup, ":");
+
+    CLOSE(dup);
+    if ((self == null) or (parent == null) or a == null
+    or a[0] == null or not __Array_push((arr_t *)&parent->data, self))
+    {
+        __Array_close(a);
+        RETFREE(self, null);
+    }
+    self->parent = parent;
+    self->val = val;
+    self->data = null;
+    self->name = strdup(strcleanedge(a[0]));
+    if (val == YAMLVAL_YAML)
+    {
+        self->data = __Array_init();
+        if (self->data == null)
+            return null;
+    }
+    else
+        self->data = strdup(strcleanedge(a[1]));
+    __Array_close(a);
+    return self;
+}
+
+static yamlval_t __Yaml_get_type(const char *str)
 {
     char *dstr = strdup(str);
     arr_t array = __Array_str_split(dstr, ":");
 
-    if (array == null)
+    CLOSE(dstr);
+    if (array == null or __Array_len(array) == 0)
         return YAMLVAL_ERR;
-    free(dstr);
-    if (__Array_len(array) == 1)
+    if (__Array_len(array) < 2)
     {
         __Array_close(array);
         return YAMLVAL_YAML;
@@ -270,7 +309,69 @@ static enum yamlval __Yaml_get_type(const char *str)
     RETFREE(dstr, YAMLVAL_NUM);
 }
 
-static size_t __Yaml_layer(const char *str)
+static void unused __Yaml_disp(yaml_t *node, unsigned lay)
+{
+    char *str = strrep('_', MAX(0, ((int)lay - 1) * 2));
+
+    printf("%s%s%s", (lay ? "|" : ""), str, node->name);
+    CLOSE(str);
+    if (node->data == null)
+    {
+        printf("\n");
+        return;
+    }
+    if (node->val != YAMLVAL_YAML)
+    {
+        printf(":%s\n", (char *)node->data);
+        return;
+    }
+    printf("\n");
+    for (size_t n = 0; ((arr_t)node->data)[n] != null; ++n)
+        __Yaml_disp(((yaml_t **)node->data)[n], lay + 1);
+}
+
+static void __Yaml_close(yaml_t *y)
+{
+    if (y == null)
+        return;
+    CLOSE(y->name);
+    if (y->val != YAMLVAL_YAML)
+    {
+        CLOSE(y->data);
+        return;
+    }
+    for (size_t n = 0; ((yaml_t **)y->data)[n] != null; ++n)
+        __Yaml_close(((yaml_t **)y->data)[n]);
+    __Array_close((arr_t)y->data);
+}
+
+// PREYAML FUNCTIONS
+
+static preyaml_t *__Preyaml_init(const char *filename)
+{
+    preyaml_t *Y = (preyaml_t *)malloc(sizeof(preyaml_t));
+
+    if (Y == null)
+        return null;
+    memcpy(Y, &(preyaml_t){null}, sizeof(preyaml_t));
+    Y->lines = __Array_parser(filename);
+    if (Y->lines == null)
+        RETFREE(Y, null);
+    Y->main = (yaml_t *)malloc(sizeof(yaml_t));
+    if (Y->main == null)
+    {
+        __Array_close(Y->lines);
+        RETFREE(Y, null);
+    }
+    memcpy(Y->main, &(yaml_t){0}, sizeof(yaml_t));
+    Y->main->val = YAMLVAL_YAML;
+    Y->main->data = __Array_init();
+    if (Y->main->data == null)
+        return null;
+    return Y;
+}
+
+static size_t __Preyaml_layer(const char *str)
 {
     size_t n = 0;
     while (IS_SPACE(str[n]))
@@ -278,36 +379,11 @@ static size_t __Yaml_layer(const char *str)
     return (size_t)(n / 2);
 }
 
-static node_t *__Yaml_newnode(node_t *parent, enum yamlval val, char *line)
+static _Bool __Preyaml_treat(preyaml_t *y)
 {
-    node_t *self = (node_t *)malloc(sizeof(node_t));
-    char *dup = strdup(line);
-    arr_t a = __Array_str_split(dup, ":");
-
-    free(dup);
-    if (self == null or a == null or a[0] == null or
-        not __Array_push((arr_t *)&parent->data, self))
-        return null;
-    self->parent = parent;
-    self->val = val;
-    self->data = null;
-    self->name = strdup(strcleanedge(a[0]));
-    if (val == YAMLVAL_YAML)
-    {
-        self->data = __Array_init();
-        if (self->data == null)
-            return null;
-    }
-    else
-        self->data = strdup(a[1]);
-    __Array_close(a);
-    return self;
-}
-
-static _Bool __Yaml_treat(yaml_t *y)
-{
-    enum yamlval val = 0;
-    node_t *parent = y->nodes, *node = null;
+    yamlval_t val = 0;
+    yaml_t *p = y->main;
+    yaml_t *node = null;
     size_t parent_lay = 0, node_lay = 0;
 
     for (size_t n = 0; y->lines[n] != null; ++n)
@@ -315,57 +391,26 @@ static _Bool __Yaml_treat(yaml_t *y)
         val = __Yaml_get_type(y->lines[n]);
         if (val == YAMLVAL_ERR)
             return false;
-        node_lay = __Yaml_layer(y->lines[n]);
-        if (node_lay < parent_lay)
+        node_lay = __Preyaml_layer(y->lines[n]);
+        if (node_lay < parent_lay and p != null)
         {
-            RECURSIVE_PARENT(parent, parent, parent_lay - node_lay);
+            RECURSIVE_PARENT(p, parent, parent_lay - node_lay);
             parent_lay = node_lay;
         }
-        node = __Yaml_newnode(parent, val, y->lines[n]);
+        node = __Yaml_init(p, val, y->lines[n]);
         if (node == null)
             return false;
-        if (val == YAMLVAL_YAML and (node_lay > parent_lay or n == 0))
+        if ((node_lay > parent_lay or node_lay == 0))
         {
-            parent = node;
+            if (val == YAMLVAL_YAML)
+                p = node;
             parent_lay = node_lay;
         }
     }
     return true;
 }
 
-static void __Yaml_closenode(node_t *node)
-{
-    free(node->name);
-    if (node->val != YAMLVAL_YAML)
-    {
-        free(node->data);
-        return;
-    }
-    for (size_t n = 0; ((node_t **)node->data)[n] != null; ++n)
-        __Yaml_closenode(((node_t **)node->data)[n]);
-    __Array_close((arr_t)node->data);
-}
-
-static void __Yaml_disp(node_t *node, unsigned lay)
-{
-    char *str = strrep('-', lay);
-
-    printf("%s%s", str, node->name);
-    free(str);
-    if (node->data == null)
-        return;
-    if (node->val != YAMLVAL_YAML)
-    {
-        printf("%s\n", (char *)node->data);
-        return;
-    }
-    if (write(1, "\n", 1) == -1)
-        return;
-    for (size_t n = 0; ((arr_t)node->data)[n] != null; ++n)
-        __Yaml_disp(((node_t **)node->data)[n], lay + 1);
-}
-
-static void __Yaml_linecleaner(yaml_t *y)
+static void __Preyaml_linecleaner(preyaml_t *y)
 {
     char *str = null;
     const char *cleaned = null;
@@ -376,80 +421,84 @@ static void __Yaml_linecleaner(yaml_t *y)
         cleaned = strcleanedge(str);
         if (strlen(cleaned) == 0 or cleaned[0] == '#')
             __Array_pop(&y->lines, n--);
-        free(str);
+        CLOSE(str);
     }
 }
 
-static node_t *__Yaml_getnodebyname(node_t **array, const char *name)
+void __Preyaml_close(preyaml_t *yaml)
 {
-    char *dup = strcleanedgedup(name);
-
-    if (dup == null)
-        return null;
-    for (size_t n = 0; array[n] != null; ++n)
-        if (strcmp(name, array[n]->name) == 0)
-        {
-            free(dup);
-            return array[n];
-        }
-    free(dup);
-    return null;
+    if (yaml == null)
+        return;
+    __Array_close(yaml->lines);
+    __Yaml_close(yaml->main);
+    free(yaml->main);
+    CLOSE(yaml);
 }
 
 // PUBLIC FUNCTIONS
 
-void yaml_close(yaml_t *yaml)
+void yaml_close(yaml_t *y)
 {
-    __Array_close(yaml->lines);
-    __Yaml_closenode(yaml->nodes);
-    free(yaml->nodes);
-    free(yaml);
+    __Yaml_close(y);
+    free(y);
 }
 
 void *yaml_access(yaml_t *y, const char *__path)
 {
-    return null;
+    char *str = strdup(__path);
+    arr_t a = __Array_str_split(str, ".");
+    yaml_t *current = y;
+
+    CLOSE(str);
+    if (a == null)
+        return null;
+    for (size_t n = 0; a[n] != null; ++n)
+    {
+        if (current->val != YAMLVAL_YAML)
+            RETCLOSEARR(a, null);
+        current = __Yaml_getbyname((yaml_t **)current->data, a[n]);
+        if (current == null)
+            RETCLOSEARR(a, null);
+    }
+    RETCLOSEARR(a, ((current->val == YAMLVAL_YAML) ? current : current->data));
 }
 
-enum yamlval yaml_accesstype(yaml_t *y, const char *__path)
+yamlval_t yaml_accesstype(yaml_t *y, const char *__path)
 {
     char *str = strdup(__path);
-    arr_t a = __Array_str_split(str, ".");;
-    node_t *current = y->nodes;
+    arr_t a = __Array_str_split(str, ".");
+    yaml_t *current = y;
 
-    free(str);
+    CLOSE(str);
     if (a == null)
         return YAMLVAL_ERR;
     for (size_t n = 0; a[n] != null; ++n)
     {
         if (current->val != YAMLVAL_YAML)
-        {
-            __Array_close(a);
-            return YAMLVAL_ERR;
-        }
-        current = __Yaml_getnodebyname((node_t **)current->data, a[n]);
+            RETCLOSEARR(a, YAMLVAL_ERR);
+        current = __Yaml_getbyname((yaml_t **)current->data, a[n]);
         if (current == null)
-        {
-            __Array_close(a);
-            return YAMLVAL_ERR;
-        }
+            RETCLOSEARR(a, YAMLVAL_ERR);
     }
-    __Array_close(a);
-    return current->val;
+    RETCLOSEARR(a, current->val);
 }
 
-yaml_t *yaml_parse(const char *filename)
+yaml_t *yaml_load(const char *filename)
 {
-    yaml_t *y = null;
+    preyaml_t *y = null;
+    yaml_t *ret = null;
 
-    y = __Yaml_init(filename);
+    y = __Preyaml_init(filename);
     if (y == null)
         return null;
-    __Yaml_linecleaner(y);
-    if (__Yaml_treat(y) == false)
+    __Preyaml_linecleaner(y);
+    if (__Preyaml_treat(y) == false)
     {
-        yaml_close(y);
+        __Preyaml_close(y);
         return null;
     }
-    return y;
+    ret = y->main;
+    __Array_close(y->lines);
+    CLOSE(y);
+    return ret;
 }

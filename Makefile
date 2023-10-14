@@ -15,6 +15,8 @@ OBJS = $(SRC:.c=.o)
 LIBPATH = /usr/local/lib/$(BLIB)
 HEADERPATH = /usr/local/include/$(HEADER)
 
+# Debug Messages
+
 E = $(shell which echo)
 INFO = $(E) -e [\\x1b\\x5b34\;1mInfo\\x1b\\x5bm]
 ERROR = $(E) -e [\\x1b\\x5b31\;1mError\\x1b\\x5bm]

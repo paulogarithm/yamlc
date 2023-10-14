@@ -1,7 +1,7 @@
 #ifndef _YAML_H_
 #define _YAML_H_
 
-typedef void ** arr_t;
+typedef void **arr_t;
 
 typedef enum yamlval
 {
@@ -9,54 +9,100 @@ typedef enum yamlval
     YAMLVAL_YAML = 0,
     YAMLVAL_STR,
     YAMLVAL_NUM,
-} yamval_t;
-
-typedef struct s_yaml_node
-{
-    enum yamlval val;
-    void *data;
-    struct s_yaml_node *parent;
-    char *name;
-} node_t;
+} yamlval_t;
 
 typedef struct s_yaml
 {
-    node_t *nodes;
-    arr_t lines;
+    yamlval_t val;
+    void *data;
+    struct s_yaml *parent;
+    char *name;
 } yaml_t;
 
+typedef struct s_preyaml
+{
+    yaml_t *main;
+    arr_t lines;
+} preyaml_t;
+
+#ifdef __cplusplus
+
+#include <string>
+
+namespace yaml
+{
+    extern "C"
+    {
+        yaml_t *yaml_load(const char *filename);
+        void yaml_close(yaml_t *yaml);
+        yamlval_t yaml_accesstype(yaml_t *y, const char *path);
+        void *yaml_access(yaml_t *y, const char *path);
+    }
+    /**
+     * Generates a yaml object by filename.
+     * @returns A yaml object, null if it failed.
+     */
+    yaml_t *load(const std::string &filename)
+    {
+        return yaml_load(filename.c_str());
+    }
+
+    /**
+     * Close a yaml object.
+     */
+    void close(yaml_t *yaml)
+    {
+        yaml_close(yaml);
+    }
+
+    /**
+     * Access the type of a yaml variable, separated by spaces.
+     * @returns The yaml value type, or -1 if it failed or not exists.
+     * @note An example of string input can be `person.age`.
+     */
+    yamlval_t accesstype(yaml_t *y, const std::string &path)
+    {
+        return yaml_accesstype(y, path.c_str());
+    }
+
+    /**
+     * Access the value of a yaml element.
+     * @returns The pointer to the value, or null if it failed or not exists.
+     * @warning If you try to access a table, you will get another yaml object.
+     */
+    void *access(yaml_t *y, const std::string &path)
+    {
+        return yaml_access(y, path.c_str());
+    }
+}
+
+#else
 
 /**
  * Generates a yaml object by filename.
  * @returns A yaml object, null if it failed.
- *
- * @public
  */
-yaml_t *yaml_parse(const char *filename);
+yaml_t *yaml_load(const char *filename);
 
 /**
  * Close a yaml object.
- *
- * @public
  */
 void yaml_close(yaml_t *yaml);
 
 /**
- * Determines if a yaml path exists.
- * @returns The yamlval type, or `YAMLVAL_ERR` if it failed or not exists.
- *
- * @public
+ * Access the type of a yaml variable, separated by spaces.
+ * @returns The yaml value type, or -1 if it failed or not exists.
+ * @note An example of string input can be `person.age`.
  */
-enum yamlval yaml_accesstype(yaml_t *y, const char *__path);
+yamlval_t yaml_accesstype(yaml_t *y, const char *__path);
 
 /**
  * Access the value of a yaml element.
- * @returns The pointer towards the value, null if it failed.
- * @warning If you try to access a table, you will get a list of yaml elements.
- * This list is a list of pointers that ends with null.
- *
- * @public
+ * @returns The pointer to the value, or null if it failed or not exists.
+ * @warning If you try to access a table, you will get another yaml object.
  */
 void *yaml_access(yaml_t *y, const char *__path);
+
+#endif /* C++ */
 
 #endif /* YAML HEADER */
